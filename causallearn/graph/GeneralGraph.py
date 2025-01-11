@@ -508,13 +508,15 @@ class GeneralGraph(Graph, ABC):
     def is_child_of(self, node1: Node, node2: Node) -> bool:
         i = self.node_map[node1]
         j = self.node_map[node2]
-        return self.graph[i, j] == Endpoint.TAIL.value or self.graph[i, j] == Endpoint.ARROW_AND_ARROW.value
+        return (self.graph[j, i] == Endpoint.TAIL.value and self.graph[i, j] == Endpoint.ARROW.value) \
+               or self.graph[j, i] == Endpoint.TAIL_AND_ARROW.value
 
     # Returns true iff node1 is a parent of node2.
     def is_parent_of(self, node1: Node, node2: Node) -> bool:
         i = self.node_map[node1]
         j = self.node_map[node2]
-        return self.graph[j, i] == Endpoint.ARROW.value and self.graph[i, j] == Endpoint.TAIL.value
+        return (self.graph[j, i] == Endpoint.ARROW.value and self.graph[i, j] == Endpoint.TAIL.value) \
+               or self.graph[i, j] == Endpoint.TAIL_AND_ARROW.value
 
     # Returns true iff node1 is a proper ancestor of node2.
     def is_proper_ancestor_of(self, node1: Node, node2: Node) -> bool:
@@ -865,20 +867,21 @@ class GeneralGraph(Graph, ABC):
     # nodes of this graph together with the edges between them.
     def subgraph(self, nodes: List[Node]):
         subgraph = GeneralGraph(nodes)
-
+    
         graph = self.graph
-
+    
+        nodes_to_delete = []
+    
         for i in range(self.num_vars):
             if not (self.nodes[i] in nodes):
-                graph = np.delete(graph, i, axis=0)
-
-        for i in range(self.num_vars):
-            if not (self.nodes[i] in nodes):
-                graph = np.delete(graph, i, axis=1)
-
+                nodes_to_delete.append(i)
+    
+        graph = np.delete(graph, nodes_to_delete, axis = 0)
+        graph = np.delete(graph, nodes_to_delete, axis = 1)
+    
         subgraph.graph = graph
         subgraph.reconstitute_dpath(subgraph.get_graph_edges())
-
+    
         return subgraph
 
     # Returns a string representation of the graph.

@@ -191,7 +191,7 @@ class KCI_UInd(object):
         """
         T = Kxc.shape[0]
         if T > 1000:
-            num_eig = np.int(np.floor(T / 2))
+            num_eig = int(np.floor(T / 2))
         else:
             num_eig = T
         lambdax = eigvalsh(Kxc)
@@ -520,7 +520,7 @@ class KCI_CInd(object):
         Returns
         _________
         uu_prod: product of the eigenvectors of Kx and Ky
-        size_u: number of producted eigenvectors
+        size_u: number of produced eigenvectors
 
         """
         wx, vx = eigh(0.5 * (Kx + Kx.T))
@@ -562,7 +562,7 @@ class KCI_CInd(object):
         Parameters
         ----------
         uu_prod: product of the eigenvectors of Kx and Ky
-        size_u: number of producted eigenvectors
+        size_u: number of produced eigenvectors
         T: sample size
 
         Returns

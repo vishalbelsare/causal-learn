@@ -14,7 +14,6 @@
 # import sys
 # sys.path.insert(0, os.path.abspath('.'))
 
-
 # -- Project information -----------------------------------------------------
 
 project = 'causal-learn'
@@ -22,7 +21,7 @@ copyright = '2021, CLeaR'
 author = 'CLeaR'
 
 # The full version, including alpha/beta/rc tags
-release = '0.1.2.8'
+release = '0.1.3.6'
 
 
 # -- General configuration ---------------------------------------------------

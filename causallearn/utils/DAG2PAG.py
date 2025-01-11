@@ -10,12 +10,13 @@ from causallearn.graph.Edge import Edge
 from causallearn.graph.Endpoint import Endpoint
 from causallearn.graph.GeneralGraph import GeneralGraph
 from causallearn.graph.Node import Node
-from causallearn.search.ConstraintBased.FCI import rule0, rulesR1R2cycle, ruleR3, ruleR4B
+from causallearn.search.ConstraintBased.FCI import rule0, rulesR1R2cycle, ruleR3, ruleR4B, ruleR5, ruleR6, ruleR7, rule8, rule9, rule10
 from causallearn.utils.cit import CIT, d_separation
 
-def dag2pag(dag: Dag, islatent: List[Node]) -> GeneralGraph:
+
+def dag2pag(dag: Dag, islatent: List[Node], isselection: List[Node] = []) -> GeneralGraph:
     """
-    Covert a DAG to its corresponding PAG
+    Convert a DAG to its corresponding PAG
     Parameters
     ----------
     dag : Direct Acyclic Graph
@@ -27,8 +28,8 @@ def dag2pag(dag: Dag, islatent: List[Node]) -> GeneralGraph:
     dg = nx.DiGraph()
     true_dag = nx.DiGraph()
     nodes = dag.get_nodes()
-    observed_nodes = list(set(nodes) - set(islatent))
-    mod_nodes = observed_nodes + islatent
+    observed_nodes = list(set(nodes) - set(islatent) - set(isselection))
+    mod_nodes = observed_nodes + islatent + isselection
     nodes = dag.get_nodes()
     nodes_ids = {node: i for i, node in enumerate(nodes)}
     mod_nodeids = {node: i for i, node in enumerate(mod_nodes)}
@@ -65,7 +66,7 @@ def dag2pag(dag: Dag, islatent: List[Node]) -> GeneralGraph:
             for Z in combinations(observed_nodes, l):
                 if nodex in Z or nodey in Z:
                     continue
-                if d_separated(dg, {nodes_ids[nodex]}, {nodes_ids[nodey]}, set(nodes_ids[z] for z in Z)):
+                if d_separated(dg, {nodes_ids[nodex]}, {nodes_ids[nodey]}, set(nodes_ids[z] for z in Z) | set([nodes_ids[s] for s in isselection])):
                     if edge:
                         PAG.remove_edge(edge)
                     sepset[(nodes_ids[nodex], nodes_ids[nodey])] |= set(Z)
@@ -96,14 +97,22 @@ def dag2pag(dag: Dag, islatent: List[Node]) -> GeneralGraph:
 
     data = np.empty(shape=(0, len(observed_nodes)))
     independence_test_method = CIT(data, method=d_separation, true_dag=true_dag)
-
+    node_map = PAG.get_node_map()
+    sepset_reindexed = {(node_map[nodes[i]], node_map[nodes[j]]): sepset[(i, j)] for (i, j) in sepset}
     while change_flag:
         change_flag = False
         change_flag = rulesR1R2cycle(PAG, None, change_flag, False)
-        change_flag = ruleR3(PAG, sepset, None, change_flag, False)
-        change_flag = ruleR4B(PAG, -1, data, independence_test_method, 0.05, sep_sets=sepset,
+        change_flag = ruleR3(PAG, sepset_reindexed, None, change_flag, False)
+        change_flag = ruleR4B(PAG, -1, data, independence_test_method, 0.05, sep_sets=sepset_reindexed,
                           change_flag=change_flag,
                           bk=None, verbose=False)
+        change_flag = ruleR5(PAG, changeFlag=change_flag, verbose=True)
+        change_flag = ruleR6(PAG, changeFlag=change_flag)
+        change_flag = ruleR7(PAG, changeFlag=change_flag)
+        change_flag = rule8(PAG, nodes=observed_nodes, changeFlag=change_flag)
+        change_flag = rule9(PAG, nodes=observed_nodes, changeFlag=change_flag)
+        change_flag = rule10(PAG, changeFlag=change_flag)
+
     return PAG
 
 

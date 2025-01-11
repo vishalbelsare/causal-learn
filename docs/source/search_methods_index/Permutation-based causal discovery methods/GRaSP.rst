@@ -6,7 +6,7 @@ GRaSP
 Algorithm Introduction
 --------------------------------------
 
-Greedy relaxation of the sparsest permutation (GRaSP) algorithm [1]_.
+Greedy relaxations of the sparsest permutation (GRaSP) algorithm [1]_.
 
 
 Usage
@@ -19,7 +19,7 @@ Usage
     G = grasp(X)
 
     # or customized parameters
-    G = grasp(X, score_func, depth, maxP, parameters)
+    G = grasp(X, score_func, depth, parameters)
 
     # Visualization using pydot
     from causallearn.utils.GraphUtils import GraphUtils
@@ -49,8 +49,6 @@ and n_features is the number of features.
               - ":ref:`local_score_marginal_general <Generalized score with marginal likelihood>`": Generalized score with marginal likelihood for data with single-dimensional variables [2]_.
               - ":ref:`local_score_CV_multi <Generalized score with cross validation>`": Generalized score with cross validation for data with multi-dimensional variables [2]_.
               - ":ref:`local_score_marginal_multi <Generalized score with marginal likelihood>`": Generalized score with marginal likelihood for data with multi-dimensional variables [2]_.
-
-**maxP**: Allowed maximum number of parents when searching the graph. Default: None.
 
 **parameters**: Needed when using CV likelihood. Default: None.
               - parameters['kfold']: k-fold cross validation.

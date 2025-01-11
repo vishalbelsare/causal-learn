@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import warnings
 from queue import Queue
-from typing import List, Set, Tuple, Dict
+from typing import List, Set, Tuple, Dict, Generator
 from numpy import ndarray
 
 from causallearn.graph.Edge import Edge
@@ -15,6 +15,19 @@ from causallearn.utils.DepthChoiceGenerator import DepthChoiceGenerator
 from causallearn.utils.cit import *
 from causallearn.utils.FAS import fas
 from causallearn.utils.PCUtils.BackgroundKnowledge import BackgroundKnowledge
+from itertools import combinations
+
+def is_uncovered_path(nodes: List[Node], G: Graph) -> bool:
+        """
+        Determines whether the given path is an uncovered path in this graph.
+
+        A path is an uncovered path if no two nonconsecutive nodes (Vi-1 and Vi+1) in the path are
+        adjacent.
+        """
+        for i in range(len(nodes) - 2):
+            if G.is_adjacent_to(nodes[i], nodes[i + 2]):
+                return False
+        return True
 
 
 def traverseSemiDirected(node: Node, edge: Edge) -> Node | None:
@@ -26,8 +39,17 @@ def traverseSemiDirected(node: Node, edge: Edge) -> Node | None:
             return edge.get_node1()
     return None
 
+def traverseCircle(node: Node, edge: Edge) -> Node | None:
+    if node == edge.get_node1():
+        if edge.get_endpoint1() == Endpoint.CIRCLE and edge.get_endpoint2() == Endpoint.CIRCLE:
+            return edge.get_node2()
+    elif node == edge.get_node2():
+        if edge.get_endpoint1() == Endpoint.CIRCLE and edge.get_endpoint2() == Endpoint.CIRCLE:
+            return edge.get_node1()
+    return None
 
-def existsSemiDirectedPath(node_from: Node, node_to: Node, G: Graph) -> bool:
+
+def existsSemiDirectedPath(node_from: Node, node_to: Node, G: Graph) -> bool: ## TODO: Now it does not detect whether the path is an uncovered path
     Q = Queue()
     V = set()
 
@@ -59,6 +81,42 @@ def existsSemiDirectedPath(node_from: Node, node_to: Node, G: Graph) -> bool:
                 Q.put(node_c)
 
     return False
+
+def GetUncoveredCirclePath(node_from: Node, node_to: Node, G: Graph, exclude_node: List[Node]) -> Generator[Node] | None:
+    Q = Queue()
+    V = set()
+
+    path = [node_from]
+
+    for node_u in G.get_adjacent_nodes(node_from):
+        if node_u in exclude_node:
+            continue
+        edge = G.get_edge(node_from, node_u)
+        node_c = traverseCircle(node_from, edge)
+
+        if node_c is None or node_c in exclude_node:
+            continue
+
+        if not V.__contains__(node_c):
+            V.add(node_c)
+            Q.put((node_c, path + [node_c]))
+
+    while not Q.empty():
+        node_t, path = Q.get_nowait()
+        if node_t == node_to and is_uncovered_path(path, G):
+            yield path
+
+        for node_u in G.get_adjacent_nodes(node_t):
+            edge = G.get_edge(node_t, node_u)
+            node_c = traverseCircle(node_t, edge)
+
+            if node_c is None or node_c in exclude_node:
+                continue
+
+            if not V.__contains__(node_c):
+                V.add(node_c)
+                Q.put((node_c, path + [node_c]))
+
 
 
 def existOnePathWithPossibleParents(previous, node_w: Node, node_x: Node, node_b: Node, graph: Graph) -> bool:
@@ -320,8 +378,9 @@ def rulesR1R2cycle(graph: Graph, bk: BackgroundKnowledge | None, changeFlag: boo
 
 def isNoncollider(graph: Graph, sep_sets: Dict[Tuple[int, int], Set[int]], node_i: Node, node_j: Node,
                   node_k: Node) -> bool:
-    sep_set = sep_sets[(graph.get_node_map()[node_i], graph.get_node_map()[node_k])]
-    return sep_set is not None and sep_set.__contains__(graph.get_node_map()[node_j])
+    node_map = graph.get_node_map()
+    sep_set = sep_sets.get((node_map[node_i], node_map[node_k]))
+    return sep_set is not None and sep_set.__contains__(node_map[node_j])
 
 
 def ruleR3(graph: Graph, sep_sets: Dict[Tuple[int, int], Set[int]], bk: BackgroundKnowledge | None, changeFlag: bool,
@@ -370,6 +429,131 @@ def ruleR3(graph: Graph, sep_sets: Dict[Tuple[int, int], Set[int]], bk: Backgrou
                 changeFlag = True
     return changeFlag
 
+def ruleR5(graph: Graph, changeFlag: bool,
+           verbose: bool = False) -> bool:
+    """
+    Rule R5 of the FCI algorithm. 
+    by Jiji Zhang, 2008, "On the completeness of orientation rules for causal discovery in the presence of latent confounders and selection bias"]
+
+    This function orients any edge that is part of an uncovered circle path between two nodes A and B,
+    if such a path exists. The path must start and end with a circle edge and must be uncovered, i.e. the
+    nodes on the path must not be adjacent to A or B. The orientation of the edges on the path is set to
+    double tail.
+    """
+    nodes = graph.get_nodes()
+    def orient_on_path_helper(path, node_A, node_B):
+        # orient A - C, D - B
+        edge = graph.get_edge(node_A, path[0])
+        graph.remove_edge(edge)
+        graph.add_edge(Edge(node_A, path[0], Endpoint.TAIL, Endpoint.TAIL))
+
+        edge = graph.get_edge(node_B, path[-1])
+        graph.remove_edge(edge)
+        graph.add_edge(Edge(node_B, path[-1], Endpoint.TAIL, Endpoint.TAIL))
+        if verbose:
+            print("Orienting edge A - C (Double tail): " + graph.get_edge(node_A, path[0]).__str__())
+            print("Orienting edge B - D (Double tail): " + graph.get_edge(node_B, path[-1]).__str__())
+
+        # orient everything on the path to both tails
+        for i in range(len(path) - 1):
+            edge = graph.get_edge(path[i], path[i + 1])
+            graph.remove_edge(edge)
+            graph.add_edge(Edge(path[i], path[i + 1], Endpoint.TAIL, Endpoint.TAIL))
+            if verbose:
+                print("Orienting edge (Double tail): " + graph.get_edge(path[i], path[i + 1]).__str__())
+    
+    for node_B in nodes:
+        intoBCircles = graph.get_nodes_into(node_B, Endpoint.CIRCLE)
+
+        for node_A in intoBCircles:
+            found_paths_between_AB = []
+            if graph.get_endpoint(node_B, node_A) != Endpoint.CIRCLE:
+                continue
+            else:
+                # Check if there is an uncovered circle path between A and B (A o-o C ..  D o-o B)
+                # s.t. A is not adjacent to D and B is not adjacent to C
+                a_node_idx = graph.node_map[node_A]
+                b_node_idx = graph.node_map[node_B]
+                a_adj_nodes = graph.get_adjacent_nodes(node_A)
+                b_adj_nodes = graph.get_adjacent_nodes(node_B)
+                
+                # get the adjacent nodes with circle edges of A and B
+                a_circle_adj_nodes_set = [node for node in a_adj_nodes if graph.node_map[node] != a_node_idx and graph.node_map[node]!= b_node_idx
+                                            and graph.get_endpoint(node, node_A) == Endpoint.CIRCLE and graph.get_endpoint(node_A, node) == Endpoint.CIRCLE]
+                b_circle_adj_nodes_set = [node for node in b_adj_nodes if graph.node_map[node] != a_node_idx and graph.node_map[node]!= b_node_idx 
+                                          and graph.get_endpoint(node, node_B) == Endpoint.CIRCLE and graph.get_endpoint(node_B, node) == Endpoint.CIRCLE]
+
+                #  get the adjacent nodes with circle edges of A and B that is non adjacent to B and A, respectively
+                for node_C in a_circle_adj_nodes_set:
+                    if graph.is_adjacent_to(node_B, node_C):
+                        continue
+                    for node_D in b_circle_adj_nodes_set:
+                        if graph.is_adjacent_to(node_A, node_D):
+                            continue
+                        paths = GetUncoveredCirclePath(node_from=node_C, node_to=node_D, G=graph, exclude_node=[node_A, node_B]) # get the uncovered circle path between C and D, excluding A and B
+                        found_paths_between_AB.append(paths)
+
+                # Orient the uncovered circle path between A and B
+                for paths in found_paths_between_AB:                    
+                    for path in paths:
+                        changeFlag = True
+                        if verbose:
+                            print("Find uncovered circle path between A and B: " + graph.get_edge(node_A, node_B).__str__())
+                        edge = graph.get_edge(node_A, node_B)
+                        graph.remove_edge(edge)
+                        graph.add_edge(Edge(node_A, node_B, Endpoint.TAIL, Endpoint.TAIL))
+                        orient_on_path_helper(path, node_A, node_B)
+
+    return changeFlag
+
+def ruleR6(graph: Graph, changeFlag: bool,
+           verbose: bool = False) -> bool:
+    nodes = graph.get_nodes()
+
+    for node_B in nodes:
+        # Find A - B
+        intoBTails = graph.get_nodes_into(node_B, Endpoint.TAIL)
+        exist = False
+        for node_A in intoBTails:
+            if graph.get_endpoint(node_B, node_A) == Endpoint.TAIL:
+                exist = True
+        if not exist:
+            continue
+        # Find B o-*C
+        intoBCircles = graph.get_nodes_into(node_B, Endpoint.CIRCLE)
+        for node_C in intoBCircles:
+            changeFlag = True
+            edge = graph.get_edge(node_B, node_C)
+            graph.remove_edge(edge)
+            graph.add_edge(Edge(node_B, node_C, Endpoint.TAIL, edge.get_proximal_endpoint(node_C)))
+            if verbose:
+                print("Orienting edge by rule 6): " + graph.get_edge(node_B, node_C).__str__())
+
+    return changeFlag
+
+
+def ruleR7(graph: Graph, changeFlag: bool,
+           verbose: bool = False) -> bool:
+    nodes = graph.get_nodes()
+
+    for node_B in nodes:
+        # Find A -o B
+        intoBCircles = graph.get_nodes_into(node_B, Endpoint.CIRCLE)
+        node_A_list = [node for node in intoBCircles if graph.get_endpoint(node_B, node) == Endpoint.TAIL]
+
+        # Find B o-*C
+        for node_C in intoBCircles:
+            # pdb.set_trace()
+            for node_A in node_A_list:
+                # pdb.set_trace()
+                if not graph.is_adjacent_to(node_A, node_C):
+                    changeFlag = True
+                    edge = graph.get_edge(node_B, node_C)
+                    graph.remove_edge(edge)
+                    graph.add_edge(Edge(node_B, node_C, Endpoint.TAIL, edge.get_proximal_endpoint(node_C)))
+                    if verbose:
+                        print("Orienting edge by rule 7): " + graph.get_edge(node_B, node_C).__str__())
+    return changeFlag
 
 def getPath(node_c: Node, previous) -> List[Node]:
     l = []
@@ -387,7 +571,7 @@ def doDdpOrientation(node_d: Node, node_a: Node, node_b: Node, node_c: Node, pre
                      independence_test_method, alpha: float, sep_sets: Dict[Tuple[int, int], Set[int]],
                      change_flag: bool, bk, verbose: bool = False) -> (bool, bool):
     """
-    Orients the edges inside the definte discriminating path triangle. Takes
+    Orients the edges inside the definite discriminating path triangle. Takes
     the left endpoint, and a,b,c as arguments.
     """
     if graph.is_adjacent_to(node_d, node_c):
@@ -542,6 +726,140 @@ def ruleR4B(graph: Graph, maxPathLength: int, data: ndarray, independence_test_m
     return change_flag
 
 
+
+def rule8(graph: Graph, nodes: List[Node], changeFlag):
+    nodes = graph.get_nodes() if nodes is None else nodes
+    for node_B in nodes:
+        adj = graph.get_adjacent_nodes(node_B)
+        if len(adj) < 2:
+            continue
+
+        cg = ChoiceGenerator(len(adj), 2)
+        combination = cg.next()
+
+        while combination is not None:
+            node_A = adj[combination[0]]
+            node_C = adj[combination[1]]
+            combination = cg.next()
+            
+            if(graph.get_endpoint(node_A, node_B) == Endpoint.ARROW and graph.get_endpoint(node_B, node_A) == Endpoint.TAIL and \
+                graph.get_endpoint(node_B, node_C) == Endpoint.ARROW and graph.get_endpoint(node_C, node_B) == Endpoint.TAIL and \
+                    graph.is_adjacent_to(node_A, node_C) and \
+                        graph.get_endpoint(node_A, node_C) == Endpoint.ARROW and graph.get_endpoint(node_C, node_A)== Endpoint.CIRCLE) or \
+                        (graph.get_endpoint(node_A, node_B) == Endpoint.CIRCLE and graph.get_endpoint(node_B, node_A) == Endpoint.TAIL and \
+                graph.get_endpoint(node_B, node_C) == Endpoint.ARROW and graph.get_endpoint(node_C, node_B) == Endpoint.TAIL and \
+                    graph.is_adjacent_to(node_A, node_C) and \
+                        graph.get_endpoint(node_A, node_C) == Endpoint.ARROW and graph.get_endpoint(node_C, node_A)== Endpoint.CIRCLE):
+                edge1 = graph.get_edge(node_A, node_C)
+                graph.remove_edge(edge1)
+                graph.add_edge(Edge(node_A, node_C,Endpoint.TAIL, Endpoint.ARROW))
+                changeFlag = True
+
+    return changeFlag
+
+
+
+def is_possible_parent(graph: Graph, potential_parent_node, child_node):
+    if graph.node_map[potential_parent_node] == graph.node_map[child_node]:
+        return False
+    if not graph.is_adjacent_to(potential_parent_node, child_node):
+        return False
+
+    if graph.get_endpoint(child_node, potential_parent_node) == Endpoint.ARROW: 
+        return False
+    else:
+        return True
+
+
+def find_possible_children(graph: Graph, parent_node, en_nodes=None):
+    if en_nodes is None:
+        nodes = graph.get_nodes()
+        en_nodes = [node for node in nodes if graph.node_map[node] != graph.node_map[parent_node]]
+
+    potential_child_nodes = set()
+    for potential_node in en_nodes:
+        if is_possible_parent(graph, potential_parent_node=parent_node, child_node=potential_node):
+            potential_child_nodes.add(potential_node)
+
+    return potential_child_nodes
+
+def rule9(graph: Graph, nodes: List[Node], changeFlag):
+    # changeFlag = False
+    nodes = graph.get_nodes() if nodes is None else nodes
+    for node_C in nodes:
+        intoCArrows = graph.get_nodes_into(node_C, Endpoint.ARROW)
+        for node_A in intoCArrows:
+            # we want A o--> C
+            if not graph.get_endpoint(node_C, node_A) == Endpoint.CIRCLE:
+                continue
+        
+            # look for a possibly directed uncovered path s.t. B and C are not connected (for the given A o--> C
+            a_node_idx = graph.node_map[node_A]
+            c_node_idx = graph.node_map[node_C]
+            a_adj_nodes = graph.get_adjacent_nodes(node_A)
+            nodes_set = [node for node in a_adj_nodes if graph.node_map[node] != a_node_idx and graph.node_map[node]!= c_node_idx]
+            possible_children = find_possible_children(graph, node_A, nodes_set)
+            for node_B in possible_children:
+                if graph.is_adjacent_to(node_B, node_C):
+                    continue
+                if existsSemiDirectedPath(node_from=node_B, node_to=node_C, G=graph):
+                    edge1 = graph.get_edge(node_A, node_C)
+                    graph.remove_edge(edge1)
+                    graph.add_edge(Edge(node_A, node_C, Endpoint.TAIL, Endpoint.ARROW))
+                    changeFlag = True
+                    break #once we found it, break out since we have already oriented Ao->C to A->C, we want to find the next A 
+    return changeFlag
+
+
+def rule10(graph: Graph, changeFlag):
+    # changeFlag = False
+    nodes = graph.get_nodes()
+    for node_C in nodes:
+        intoCArrows = graph.get_nodes_into(node_C, Endpoint.ARROW)
+        if len(intoCArrows) < 2:
+                continue
+        # get all A where A o-> C
+        Anodes = [node_A for node_A in intoCArrows if graph.get_endpoint(node_C, node_A) == Endpoint.CIRCLE]
+        if len(Anodes) == 0:
+            continue
+        
+        for node_A in Anodes:
+            A_adj_nodes = graph.get_adjacent_nodes(node_A)
+            en_nodes = [i for i in A_adj_nodes if i is not node_C]
+            A_possible_children = find_possible_children(graph, parent_node=node_A, en_nodes=en_nodes)
+            if len(A_possible_children) < 2:
+                continue
+
+            gen = ChoiceGenerator(len(intoCArrows), 2)
+            choice = gen.next()
+            while choice is not None:
+                node_B = intoCArrows[choice[0]]
+                node_D = intoCArrows[choice[1]]
+
+                choice = gen.next()
+                # we want B->C<-D 
+                if graph.get_endpoint(node_C, node_B) != Endpoint.TAIL:
+                    continue
+
+                if graph.get_endpoint(node_C, node_D) != Endpoint.TAIL:
+                    continue
+
+                for children in combinations(A_possible_children, 2):
+                    child_one, child_two = children
+                    if not existsSemiDirectedPath(node_from=child_one, node_to=node_B, G=graph) or \
+                        not existsSemiDirectedPath(node_from=child_two, node_to=node_D, G=graph):
+                        continue
+
+                    if not graph.is_adjacent_to(child_one, child_two):
+                        edge1 = graph.get_edge(node_A, node_C)
+                        graph.remove_edge(edge1)
+                        graph.add_edge(Edge(node_A, node_C, Endpoint.TAIL, Endpoint.ARROW))
+                        changeFlag = True
+                        break #once we found it, break out since we have already oriented Ao->C to A->C, we want to find the next A 
+
+    return changeFlag
+
+
 def visibleEdgeHelperVisit(graph: Graph, node_c: Node, node_a: Node, node_b: Node, path: List[Node]) -> bool:
     if path.__contains__(node_a):
         return False
@@ -691,9 +1009,9 @@ def removeByPossibleDsep(graph: Graph, independence_test_method: CIT, alpha: flo
                     break
 
 
-
 def fci(dataset: ndarray, independence_test_method: str=fisherz, alpha: float = 0.05, depth: int = -1,
-        max_path_length: int = -1, verbose: bool = False, background_knowledge: BackgroundKnowledge | None = None,
+        max_path_length: int = -1, verbose: bool = False, background_knowledge: BackgroundKnowledge | None = None, 
+        show_progress: bool = True, node_names = None,
         **kwargs) -> Tuple[Graph, List[Edge]]:
     """
     Perform Fast Causal Inference (FCI) algorithm for causal discovery
@@ -716,7 +1034,7 @@ def fci(dataset: ndarray, independence_test_method: str=fisherz, alpha: float = 
 
     Returns
     -------
-    graph : a CausalGraph object, where graph.graph[j,i]=1 and graph.graph[i,j]=-1 indicates  i --> j ,
+    graph : a GeneralGraph object, where graph.graph[j,i]=1 and graph.graph[i,j]=-1 indicates  i --> j ,
                     graph.graph[i,j] = graph.graph[j,i] = -1 indicates i --- j,
                     graph.graph[i,j] = graph.graph[j,i] = 1 indicates i <-> j,
                     graph.graph[j,i]=1 and graph.graph[i,j]=2 indicates  i o-> j.
@@ -748,15 +1066,18 @@ def fci(dataset: ndarray, independence_test_method: str=fisherz, alpha: float = 
 
 
     nodes = []
+    if node_names is None:
+        node_names = [f"X{i + 1}" for i in range(dataset.shape[1])]
     for i in range(dataset.shape[1]):
-        node = GraphNode(f"X{i + 1}")
+        node = GraphNode(node_names[i])
         node.add_attribute("id", i)
         nodes.append(node)
 
     # FAS (“Fast Adjacency Search”) is the adjacency search of the PC algorithm, used as a first step for the FCI algorithm.
     graph, sep_sets, test_results = fas(dataset, nodes, independence_test_method=independence_test_method, alpha=alpha,
-                                        knowledge=background_knowledge, depth=depth, verbose=verbose)
+                                        knowledge=background_knowledge, depth=depth, verbose=verbose, show_progress=show_progress)
 
+    # pdb.set_trace()
     reorientAllWith(graph, Endpoint.CIRCLE)
 
     rule0(graph, nodes, sep_sets, background_knowledge, verbose)
@@ -786,6 +1107,23 @@ def fci(dataset: ndarray, independence_test_method: str=fisherz, alpha: float = 
 
             if verbose:
                 print("Epoch")
+
+        # rule 5
+        change_flag = ruleR5(graph, change_flag, verbose)
+        
+        # rule 6
+        change_flag = ruleR6(graph, change_flag, verbose)
+        
+        # rule 7
+        change_flag = ruleR7(graph, change_flag, verbose)
+        
+        # rule 8
+        change_flag = rule8(graph,nodes, change_flag)
+        
+        # rule 9
+        change_flag = rule9(graph, nodes, change_flag)
+        # rule 10
+        change_flag = rule10(graph, change_flag)
 
     graph.set_pag(True)
 

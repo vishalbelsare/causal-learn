@@ -1,6 +1,6 @@
 # causal-learn: Causal Discovery in Python
 
-Causal-learn is a python package for causal discovery that implements both classical and state-of-the-art causal discovery algorithms, which is a Python translation and extension of [Tetrad](https://github.com/cmu-phil/tetrad).
+Causal-learn ([documentation](https://causal-learn.readthedocs.io/en/latest/), [paper](https://jmlr.org/papers/volume25/23-0970/23-0970.pdf)) is a python package for causal discovery that implements both classical and state-of-the-art causal discovery algorithms, which is a Python translation and extension of [Tetrad](https://github.com/cmu-phil/tetrad).
 
 The package is actively being developed. Feedbacks (issues, suggestions, etc.) are highly encouraged.
 
@@ -70,3 +70,19 @@ We are always targeting to make our community better!
 # Running Tetrad in Python
 
 Although causal-learn provides python implementations for some causal discovery algorithms, there are currently a lot more in the classical Java-based [Tetrad](https://github.com/cmu-phil/tetrad) program. For users who would like to incorporate arbitrary Java code in Tetrad as part of a Python workflow, we strongly recommend considering [py-tetrad](https://github.com/cmu-phil/py-tetrad). Here is a list of [reusable examples](https://github.com/cmu-phil/py-tetrad/tree/main/pytetrad) of how to painlessly benefit from the most comprehensive Tetrad Java codebase.
+
+# Citation
+
+Please cite as:
+
+```
+@article{zheng2024causal,
+  title={Causal-learn: Causal discovery in python},
+  author={Zheng, Yujia and Huang, Biwei and Chen, Wei and Ramsey, Joseph and Gong, Mingming and Cai, Ruichu and Shimizu, Shohei and Spirtes, Peter and Zhang, Kun},
+  journal={Journal of Machine Learning Research},
+  volume={25},
+  number={60},
+  pages={1--8},
+  year={2024}
+}
+```
