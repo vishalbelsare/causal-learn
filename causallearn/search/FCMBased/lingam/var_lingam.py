@@ -253,14 +253,14 @@ class VARLiNGAM:
         # XXX: VAR.fit() is not searching lags correctly
         if self._criterion not in ['aic', 'fpe', 'hqic', 'bic']:
             var = VAR(X)
-            result = var.fit(maxlags=self._lags, trend='nc')
+            result = var.fit(maxlags=self._lags, trend='n')
         else:
             min_value = float('Inf')
             result = None
 
             for lag in range(1, self._lags + 1):
                 var = VAR(X)
-                fitted = var.fit(maxlags=lag, ic=None, trend='nc')
+                fitted = var.fit(maxlags=lag, ic=None, trend='n')
 
                 value = getattr(fitted, self._criterion)
                 if value < min_value:
@@ -319,10 +319,14 @@ class VARLiNGAM:
             obj = np.zeros((len(blocks)))
             exp = np.zeros(
                 (len(blocks), causal_order_no + n_features * self._lags))
-            for j, block in enumerate(blocks):
-                obj[j] = block[0][i]
-                exp[j:] = np.concatenate(
-                    [block[0][ancestor_indexes].flatten(), block[1:][:].flatten()], axis=0)
+            
+            # Create 3D array to hold flattened ancestor indices for each block
+            ancestor_indexes_flat = blocks[:, 0, ancestor_indexes].reshape(len(blocks), -1)
+            # Fill obj using advanced indexing
+            obj[:] = blocks[:, 0, i]
+            # Fill exp using advanced indexing
+            exp[:, :causal_order_no] = ancestor_indexes_flat
+            exp[:, causal_order_no:] = blocks[:, 1:].reshape(len(blocks), -1)
 
             # adaptive lasso
             gamma = 1.0

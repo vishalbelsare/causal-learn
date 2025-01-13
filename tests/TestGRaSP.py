@@ -7,61 +7,45 @@ from causallearn.graph.GeneralGraph import GeneralGraph
 from causallearn.graph.GraphNode import GraphNode
 from causallearn.search.PermutationBased.GRaSP import grasp
 from causallearn.utils.DAG2CPDAG import dag2cpdag
-from causallearn.utils.GraphUtils import GraphUtils
-import matplotlib.image as mpimg
-import matplotlib.pyplot as plt
-import io
+
+import gc
 
 
-def random_dag(p, d):
+def simulate_data(p, d, n):
     """
-    Randomly generates an Erdos-Renyi direct acyclic graph given an ordering.
+    Randomly generates an Erdos-Renyi direct acyclic graph given an ordering 
+    and randomly simulates data with the provided parameters.
 
     p = |variables|
     d = |edges| / |possible edges|
+    n = sample size
     """
 
     # npe = |possible edges|
     pe = int(p * (p - 1) / 2)
 
-    # e = |edges|
+    # ne = |edges|
     ne = int(d * pe)
 
     # generate edges
-    e = np.append(np.zeros(pe - ne, "uint8"), np.ones(ne, "uint8"))
+    e = np.append(np.zeros(pe - ne), 0.5 * np.random.uniform(-1, 1, ne))
     np.random.shuffle(e)
-
-    # generate graph
-    g = np.zeros([p, p], "uint8")
-    g.T[np.triu_indices(p, 1)] = e
-
-    return g
-
-
-def parameterize_dag(g):
-    """
-    Randomly parameterize a directed acyclic graph.
-
-    g = directed acyclic graph (adjacency matrix)
-    """
-
-    # p = |variables|
-    p = g.shape[0]
-
-    # e = |edges|
-    e = np.sum(g)
+    B = np.zeros([p, p])
+    B.T[np.triu_indices(p, 1)] = e
 
     # generate variance terms
-    o = np.diag(np.ones(p))
+    O = np.diag(np.ones(p))
 
-    # generate edge weights (edge parameters uniformly sampled [-1.0, 1.0])
-    b = np.zeros([p, p])
-    b[np.where(g == 1)] = np.random.uniform(-1, 1, e)
+    # simulate data
+    X = np.random.multivariate_normal(np.zeros(p), O, n)
+    for i in range(p):
+        J = np.where(B[i])[0]
+        for j in J: X[:, i] += B[i, j] * X[:, j]
 
-    # calculate covariance
-    s = np.dot(np.dot(np.linalg.inv(np.eye(p) - b), o), np.linalg.inv(np.eye(p) - b).T)
+    pi = [i for i in range(p)]
+    np.random.shuffle(pi)
 
-    return s
+    return (B != 0)[pi][:, pi], X[:, pi]
 
 
 class TestGRaSP(unittest.TestCase):
@@ -71,25 +55,22 @@ class TestGRaSP(unittest.TestCase):
         n = 1000
         reps = 5
 
+        gc.set_threshold(20000, 50, 50)
+        # gc.set_debug(gc.DEBUG_STATS)
+
         for p in ps:
             for d in ds:
                 stats = [[], [], [], []]
                 for rep in range(1, reps + 1):
-                    g0 = random_dag(p, d)
+                    g0, X = simulate_data(p, d, n)
                     print(
-                        "\nNodes:",
-                        p,
-                        "| Edges:",
-                        np.sum(g0),
-                        "| Avg Degree:",
-                        2 * np.sum(g0) / p,
-                        "| Rep:",
-                        rep,
+                        "\nNodes:", p,
+                        "| Edges:", np.sum(g0),
+                        "| Avg Degree:", 2 * round(np.sum(g0) / p, 2),
+                        "| Rep:", rep,
                     )
-                    cov = parameterize_dag(g0)
-                    X = np.random.multivariate_normal(np.zeros(p), cov, n)
 
-                    node_names = [("x%d" % i) for i in range(p)]
+                    node_names = [("X%d" % (i + 1)) for i in range(p)]
                     nodes = []
 
                     for name in node_names:
@@ -103,15 +84,8 @@ class TestGRaSP(unittest.TestCase):
 
                     G0 = dag2cpdag(G0)
 
-                    G = grasp(X)
-
-                    pyd = GraphUtils.to_pydot(G)
-                    tmp_png = pyd.create_png(f="png")
-                    fp = io.BytesIO(tmp_png)
-                    img = mpimg.imread(fp, format='png')
-                    plt.axis('off')
-                    plt.imshow(img)
-                    plt.show()
+                    G = grasp(X, depth=1, parameters={'lambda_value': 4})
+                    gc.collect()
 
                     AdjC = AdjacencyConfusion(G0, G)
                     stats[0].append(AdjC.get_adj_precision())
